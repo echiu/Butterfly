@@ -3,52 +3,30 @@ import Framework from './framework'
 const OBJLoader = require('three-obj-loader')(THREE)
 
 var startTime = Date.now();
+var pointsMaterial = new THREE.PointsMaterial( { color: 0xffffff } );
+pointsMaterial.size = 0.07;
+var pointsMesh = new THREE.Points(new THREE.Geometry(), pointsMaterial);
+var pointPositions = [];
+var radius = 10;
 
-var officeBlackGeo = new THREE.Geometry();
-var officeBlackLoaded = new Promise((resolve, reject) => {
-    (new THREE.OBJLoader()).load('./assets/OfficeBlack.obj', function(obj) {
-        officeBlackGeo = obj.children[0].geometry;
-        officeBlackGeo.computeBoundingSphere();
-        resolve(officeBlackGeo);
-    });
-});
+function bias(b, t) {
+    return Math.pow(t, Math.log(b) / Math.log(0.5));
+}
 
-var officeMetalGeo = new THREE.Geometry();
-var officeMetalLoaded = new Promise((resolve, reject) => {
-    (new THREE.OBJLoader()).load('./assets/OfficeMetal.obj', function(obj) {
-        officeMetalGeo = obj.children[0].geometry;
-        officeMetalGeo.computeBoundingSphere();
-        resolve(officeMetalGeo);
-    });
-});
+function gain(g, t) {
+    if (t < 0.5) return bias(1.0 - g, 2.0*t) / 2; 
+    else return 1 - bias(1.0 - g, 2.0 - 2.0*t) / 2;
+}
 
-var officeWhiteGeo = new THREE.Geometry();
-var officeWhiteLoaded = new Promise((resolve, reject) => {
-    (new THREE.OBJLoader()).load('./assets/OfficeWhite.obj', function(obj) {
-        officeWhiteGeo = obj.children[0].geometry;
-        officeWhiteGeo.computeBoundingSphere();
-        resolve(officeWhiteGeo);
-    });
-});
+/////////////////////////////////////////////////////////////////////
 
-var officeWoodGeo = new THREE.Geometry();
-var officeWoodLoaded = new Promise((resolve, reject) => {
-    (new THREE.OBJLoader()).load('./assets/OfficeWood.obj', function(obj) {
-        officeWoodGeo = obj.children[0].geometry;
-        officeWoodGeo.computeBoundingSphere();
-        resolve(officeWoodGeo);
-    });
-});
-
-var tank = new THREE.Mesh();
-var tankGeo = new THREE.Geometry();
-var tankLoaded = new Promise((resolve, reject) => {
-    (new THREE.OBJLoader()).load('./assets/tank.obj', function(obj) {
-        tankGeo = obj.children[0].geometry;
-        tankGeo.computeBoundingSphere();
-        resolve(tankGeo);
-    });
-});
+var forward = new THREE.Vector3(0, 0, 1);
+var position = new THREE.Vector3(0, 0, 0);
+var stepSize = 0.1;
+var turnSize = Math.PI/12;
+var pathMaterial = new THREE.LineBasicMaterial({color: 0x0000ff});
+var pathGeo = new THREE.Geometry();
+var turnThroughput = 0;
 
 /////////////////////////////////////////////////////////////////////
 
@@ -73,135 +51,48 @@ function onLoad(framework) {
     scene.add( ambientLight );
 
     // set camera position and rotation point
-    camera.position.set(0, 15, 20);
+    camera.position.set(0, 10, 0);
     camera.lookAt(new THREE.Vector3(0, 0, 0));
     controls.target.set(0, 0, 0);
 
-    //add smith head to scene
-    //perform all these operations after all the data is loaded
-    Promise.all([officeBlackLoaded, officeMetalLoaded, officeWhiteLoaded, officeWoodLoaded]).then(values => {   
+    //gravity visualizer
+    for (var t = 0.0; t <= 1.0; t += 0.05) {
 
-        var officeBlackMaterial = new THREE.MeshStandardMaterial({color: new THREE.Color(0, 0, 0)});
-        officeBlackMaterial.roughness = 1;
-        officeBlackMaterial.metalness = 0;
-        var officeBlack = new THREE.Mesh( officeBlackGeo, officeBlackMaterial);
-        scene.add(officeBlack);
+        //var y = 0.5*radius*gain(0.8, t);
+        //give a little extra room near center
+        var y = 0.5*radius*gain(0.8, Math.max(0,(t-0.1)/0.9));
 
-        var officeMetalMaterial = new THREE.MeshStandardMaterial({color: new THREE.Color(0.51, 0.51, 0.51)});
-        officeMetalMaterial.roughness = 1;
-        officeMetalMaterial.metalness = 0;
-        var officeMetal = new THREE.Mesh(officeMetalGeo, officeMetalMaterial);
-        scene.add(officeMetal);
+        for (var angle = 0.0; angle < 2.0*Math.PI; angle += Math.PI/18.0 ) {
+            var x = Math.cos(angle) * (t*radius);
+            var z = Math.sin(angle) * (t*radius); 
+            pointPositions.push(new THREE.Vector3(x, y, z));
+            //console.log("(" + x + ", " + y + ", " + z + ")");
+        }
 
-        var officeWhiteMaterial = new THREE.MeshStandardMaterial({map: new THREE.TextureLoader().load('./assets/white.jpg')});
-        officeWhiteMaterial.roughness = 1;
-        officeWhiteMaterial.metalness = 0;
-        var officeWhite = new THREE.Mesh(officeWhiteGeo, officeWhiteMaterial);
-        scene.add(officeWhite);
-
-        var officeWoodMaterial = new THREE.MeshStandardMaterial({map: new THREE.TextureLoader().load('./assets/wood.jpg')});
-        //officeWoodMaterial.bumpMap = new THREE.TextureLoader().load('./assets/woodbump.jpg');
-        officeWoodMaterial.roughness = 1;
-        officeWoodMaterial.metalness = 0;
-        var officeWood = new THREE.Mesh(officeWoodGeo, officeWoodMaterial);
-        scene.add(officeWood);
-
-    });
-    
-    Promise.all([tankLoaded]).then(values => {
-
-        var tankMaterial = new THREE.MeshLambertMaterial({color: 0xd3c78f});
-        tank = new THREE.Mesh(tankGeo, tankMaterial);
-        tank.scale.x = 2;
-        tank.scale.y = 2;
-        tank.scale.z = 2;
-        scene.add(tank);
-
-    });
-
-    /*
-    var skyGeo = new THREE.SphereGeometry(300, 25, 25); 
-    var skyMaterial = new THREE.MeshBasicMaterial({map: THREE.ImageUtils.loadTexture( "./assets/environment.jpg" ), side: THREE.BackSide});
-    var sky = new THREE.Mesh(skyGeo, skyMaterial);
-    sky.rotation.y += Math.PI;
-    sky.position.y += 100;
-    scene.add(sky);
-    */
-
-    /*
-    var textureLoader = new THREE.TextureLoader();
-    var texture0 = textureLoader.load( './assets/px.png' );
-    var texture1 = textureLoader.load( './assets/nx.png' );
-    var texture2 = textureLoader.load( './assets/py.png' );
-    var texture3 = textureLoader.load( './assets/ny.png' );
-    var texture4 = textureLoader.load( './assets/pz.png' );
-    var texture5 = textureLoader.load( './assets/nz.png' );
-
-    var materials = [
-    new THREE.MeshBasicMaterial( { map: texture0, side: THREE.BackSide } ),
-    new THREE.MeshBasicMaterial( { map: texture1, side: THREE.BackSide } ),
-    new THREE.MeshBasicMaterial( { map: texture2, side: THREE.BackSide } ),
-    new THREE.MeshBasicMaterial( { map: texture3, side: THREE.BackSide } ),
-    new THREE.MeshBasicMaterial( { map: texture4, side: THREE.BackSide } ),
-    new THREE.MeshBasicMaterial( { map: texture5, side: THREE.BackSide } )
-    ];
-
-    var faceMaterial = new THREE.MeshFaceMaterial( materials );
-
-    //var skymap = new THREE.CubeTextureLoader().load(['./assets/px.png', './assets/nx.png', './assets/py.png', './assets/ny.png', './assets/pz.png', './assets/nz.png']);
-    var skyGeo = new THREE.BoxGeometry(500, 500, 500); 
-    //var skyMaterial = new THREE.MeshBasicMaterial({envMap: skymap, side: THREE.BackSide});
-    var sky = new THREE.Mesh(skyGeo, faceMaterial);
-    sky.position.y += 100;
-    sky.scale.z = 2;
-    sky.scale.x = 2;
-    scene.add(sky);
-    */
-    
-}
-
-var destination = new THREE.Vector3();
-var normalizedVelocity = new THREE.Vector3();
-var forwardAxis = new THREE.Vector3(0, 0, 1);
-var rotationSpeed = 2.0;
-var moveSpeed = 1.0/5.0;
-
-function moveTank(dimension) {
-
-    //y is the up axis
-    //z is the forward axis
-
-    //check if reached destination
-    if (tank.position.distanceTo(destination) < 2.0 ){
-        normalizedVelocity = new THREE.Vector3(0, 0, 0);
     }
-    
-    //determine new destination if reached old destination
-    if (normalizedVelocity.x == 0.0 && normalizedVelocity.z == 0.0) {
-        destination = new THREE.Vector3((2.0*Math.random()-1.0)*dimension, 0, (2.0*Math.random()-1.0)*dimension);
-        normalizedVelocity = new THREE.Vector3(destination.x - tank.position.x, 0, destination.z - tank.position.z).normalize();
-    }
+    pointsMesh.geometry.vertices = pointPositions;
+    pointsMesh.geometry.verticesNeedUpdate = true;
+    scene.add(pointsMesh);
 
-    //https://stackoverflow.com/questions/5188561/signed-angle-between-two-3d-vectors-with-same-origin-within-the-same-plane
-    var angleToDestination = Math.atan2( new THREE.Vector3(forwardAxis.x, forwardAxis.y, forwardAxis.z).cross(normalizedVelocity).dot(new THREE.Vector3(0, 1, 0)), 
-            new THREE.Vector3(normalizedVelocity.x, normalizedVelocity.y, normalizedVelocity.z).dot(forwardAxis));
+    //butterfly movement
+    for (var i = 0; i < 1000; i++) {
 
-    //if facing the correct direction, move; else, rotate
-    if (angleToDestination < Math.PI/180.0 && angleToDestination > -Math.PI/180.0) { 
-        tank.position.x += normalizedVelocity.x*moveSpeed;
-        tank.position.z += normalizedVelocity.z*moveSpeed;
+        var turnProbability = -Math.tan(turnThroughput) + Math.PI/2.0;
+        
+
+        var turnDirection = (Math.random() > 0.5) ? 1.0 : -1.0; //-1 is counterclockwise, 0 is straight, 1 is clockwise
+        forward.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), turnDirection * turnSize));
+        position.add(new THREE.Vector3(forward.x, forward.y, forward.z).multiplyScalar(stepSize));
+
+        pathGeo.vertices.push(new THREE.Vector3(position.x, position.y, position.z));
     }
-    else {
-        var sign = angleToDestination > 0 ? 1 : -1;
-        tank.rotation.y += sign*rotationSpeed*Math.PI/180.0;
-        forwardAxis.applyQuaternion( new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), sign*rotationSpeed*Math.PI/180.0));
-    }
+    var pathMesh = new THREE.Line(pathGeo, pathMaterial);
+    scene.add(pathMesh);
 
 }
 
 // called on frame updates
 function onUpdate(framework) {
-    moveTank(33);
 }
 
 // when the scene is done initializing, it will call onLoad, then on frame updates, call onUpdate
